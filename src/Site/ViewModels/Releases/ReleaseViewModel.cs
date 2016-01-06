@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using RimDev.Releases.Infrastructure.GitHub;
 using RimDev.Releases.Models;
 
@@ -7,10 +8,12 @@ namespace RimDev.Releases.ViewModels.Releases
     {
         public ReleaseViewModel(
             GitHubRepository gitHubRepository,
-            Release release)
+            Release release,
+            IEnumerable<Author> authors)
         {
             GitHubRepository = gitHubRepository;
             Release = release;
+            Authors = authors ?? new List<Author>();
         }
 
         public GitHubRepository GitHubRepository{get;protected set;}
@@ -18,6 +21,7 @@ namespace RimDev.Releases.ViewModels.Releases
 
         public string FullName => GitHubRepository.FullName;
         public string Description => GitHubRepository.Description;
+        public IEnumerable<Author> Authors {get;protected set;}
         public string Title => Release?.Name;
 
         public string Body => Release?.Body;

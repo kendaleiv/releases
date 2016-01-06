@@ -49,19 +49,21 @@ namespace Site.Controllers
         {
             // never go below 1
             page = Math.Max(1, page);
-            
+
             var currentRepository = appSettings.Find(id);
 
             if (currentRepository == null)
                 return HttpNotFound();
 
-            var releases = await GetAllReleases(currentRepository, page);            
-            
+            var releases = await GetAllReleases(currentRepository, page);
+
             if (releases == null)
                 return View(new ShowViewModel(currentRepository));
 
             var model = new ShowViewModel(currentRepository) {
-              Releases = releases.Releases.Select(x => new ReleaseViewModel(currentRepository, x)).ToList(),
+              Releases = releases.Releases
+                  .Select(x => new ReleaseViewModel(currentRepository, x, GetAuthorsForRelease(currentRepository, x).Result))
+                  .ToList(),
               Page = releases.Page,
               PageSize = releases.PageSize,
               FirstPage = releases.FirstPage,
@@ -84,7 +86,7 @@ namespace Site.Controllers
             {
                 var releases = new List<ReleaseViewModel>();
                 var gitHubReleases = await gitHub.GetReleases(gitHubRepository.Owner, gitHubRepository.Name, page);
-                
+
                 return gitHubReleases;
             }
             catch (Exception ex)
@@ -94,18 +96,64 @@ namespace Site.Controllers
             }
         }
 
+        private async Task<IEnumerable<Author>> GetAuthorsForRelease(
+            GitHubRepository gitHubRepository,
+            Release release)
+        {
+            try
+            {
+               var releaseBaseTarget = await GetPreviousReleaseTarget(gitHubRepository, release);
+
+                var authors = await gitHub.GetAuthorsBetweenRange(
+                    gitHubRepository.Owner,
+                    gitHubRepository.Name,
+                    releaseBaseTarget,
+                    release.TargetCommitish);
+
+                return authors;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"github request failed for {gitHubRepository.Name}", ex);
+                return new List<Author> { release.Author };
+            }
+        }
+
         private async Task<ReleaseViewModel> GetLatestRelease(GitHubRepository gitHubRepository)
         {
             try
             {
                 var release = await gitHub.GetLatestRelease(gitHubRepository.Owner, gitHubRepository.Name);
-                return new ReleaseViewModel(gitHubRepository, release);
+
+                var previousReleaseTarget = await GetPreviousReleaseTarget(gitHubRepository, release);
+
+                var authors = await gitHub.GetAuthorsBetweenRange(
+                    gitHubRepository.Owner,
+                    gitHubRepository.Name,
+                    previousReleaseTarget,
+                    release.TargetCommitish);
+
+                return new ReleaseViewModel(gitHubRepository, release, authors);
             }
             catch (Exception ex)
             {
                 logger.LogError($"github request failed for {gitHubRepository.Name}", ex);
-                return new ReleaseViewModel(gitHubRepository, null);
+                return new ReleaseViewModel(gitHubRepository, null, null);
             }
+        }
+
+        private async Task<string> GetPreviousReleaseTarget(GitHubRepository gitHubRepository, Release release)
+        {
+            var releasesResponse = await gitHub.GetReleases(gitHubRepository.Owner, gitHubRepository.Name);
+
+            throw new NotImplementedException();
+
+            var releaseBaseTarget = releasesResponse.Releases.Count == 2
+                // TODO: Get previous release from current release
+                // ? releasesResponse.Releases.Skip(1).First().TargetCommitish
+                : "master"; // Using master here is not 'perfect', but hopefully good enough.
+
+            return releaseBaseTarget;
         }
     }
 }

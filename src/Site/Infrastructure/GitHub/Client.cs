@@ -12,6 +12,12 @@ namespace RimDev.Releases.Infrastructure.GitHub
     {
         private const string baseUrl = "https://api.github.com/";
 
+        /// <remarks>
+        /// https://developer.github.com/v3/repos/commits/#compare-two-commits
+        /// is limited to 250 commits.
+        /// </remarks>
+        private const int CommitCompareApiMaximum = 250;
+
         private readonly string apiToken;
         private readonly IMarkdownCache markdownCache;
 
@@ -41,7 +47,7 @@ namespace RimDev.Releases.Infrastructure.GitHub
 
                 IEnumerable<string> links;
                 result.Headers.TryGetValues("Link", out links);
-                var header = (links ?? new string[0]).FirstOrDefault();                
+                var header = (links ?? new string[0]).FirstOrDefault();
 
                 return new ReleasesResponse
                 {
@@ -49,6 +55,32 @@ namespace RimDev.Releases.Infrastructure.GitHub
                     Page = page,
                     PageSize = pageSize
                 }.ParsePaging(header);
+            }
+        }
+
+        public async Task<IEnumerable<Author>> GetAuthorsBetweenRange(string owner, string repo, string compareBase, string compareHead)
+        {
+            var url = new Uri($"{baseUrl}repos/{owner}/{repo}/compare?:{compareBase}...:{compareHead}");
+
+            using (var client = GetClient(url))
+            {
+                var result = await client.GetAsync("");
+
+                result.EnsureSuccessStatusCode();
+
+                var response = await result.Content.ReadAsStringAsync();
+
+                var json = JsonConvert.DeserializeObject<CompareTwoCommits>(response);
+
+                if (json.Commits.Count() >= CommitCompareApiMaximum)
+                {
+                    logger.LogWarning(
+                        $"Encountered the maximum number of commits ({CommitCompareApiMaximum}) " +
+                        $"while comparing :{compareBase}...:{compareHead}. " +
+                        "Some authors may be missing from comparison.");
+                }
+
+                return json.Commits.SelectMany(x => x.Authors).Distinct();
             }
         }
 
